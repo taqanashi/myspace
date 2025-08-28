@@ -18,9 +18,13 @@ async def run() -> None:
 
     bot = Bot(token=settings.telegram_bot_token)
     try:
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)
         data = await weekly_report(db, settings.channel_id, now)
-        text = format_comparison("Еженедельный отчёт (прошлая неделя)", data.get("prev", {}), data.get("curr", {}))
+        text = format_comparison(
+            "Еженедельный отчёт (прошедшая неделя)",
+            data.get("prev", {}),
+            data.get("curr", {}),
+        )
         await bot.send_message(chat_id=settings.channel_id, text=text)
     finally:
         await bot.session.close()
