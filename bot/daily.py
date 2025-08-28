@@ -87,18 +87,7 @@ def format_daily_comparison(curr: DailyMetrics, prev: Optional[DailyMetrics]) ->
     return "\n".join(parts)
 
 
-def _sum_metrics(rows: List[Dict[str, int]]) -> Dict[str, int]:
-    keys = [
-        "sms_namings_total",
-        "active_clients",
-        "mts",
-        "megafon",
-        "beeline",
-        "tele2_rostelecom",
-        "other_operators",
-        "alt_channels_total",
-        "teleads_views",
-    ]
+def _sum_metrics(rows: List[Dict[str, int]], keys: List[str]) -> Dict[str, int]:
     result = {k: 0 for k in keys}
     for row in rows:
         for k in keys:
@@ -113,7 +102,11 @@ def week_starts(local_now: dt.datetime) -> Tuple[dt.date, dt.date]:
     return this_week_start, last_week_start
 
 
-async def weekly_from_daily(db: "Database", channel_id: int, settings: Settings, now_utc: dt.datetime) -> Dict[str, Dict[str, int]]:
+def _format_period(start: dt.date, end: dt.date) -> str:
+    return f"{start.strftime('%d.%m.%Y')} - {end.strftime('%d.%m.%Y')}"
+
+
+async def weekly_from_daily(db: "Database", channel_id: int, settings: Settings, now_utc: dt.datetime) -> Dict[str, Dict[str, int] | str]:
     from .db import Database  # type: ignore # for type hints only
 
     tz = settings.tz()
@@ -128,29 +121,71 @@ async def weekly_from_daily(db: "Database", channel_id: int, settings: Settings,
     rows_prev = await db.fetch_daily_metrics_between(channel_id, prev_week_start.isoformat(), prev_week_end.isoformat())
     rows_curr = await db.fetch_daily_metrics_between(channel_id, last_week_start.isoformat(), last_week_end.isoformat())
 
-    return {"prev": _sum_metrics(rows_prev), "curr": _sum_metrics(rows_curr)}
+    traffic_keys = [
+        "mts",
+        "megafon",
+        "beeline",
+        "tele2_rostelecom",
+        "other_operators",
+        "alt_channels_total",
+        "teleads_views",
+    ]
+
+    sums_prev = _sum_metrics(rows_prev, traffic_keys)
+    sums_curr = _sum_metrics(rows_curr, traffic_keys)
+
+    # cumulative metrics deltas
+    def last_value(rows: List[Dict[str, int]], key: str) -> int:
+        return int(rows[-1][key]) if rows else 0
+
+    cum_keys = ["sms_namings_total", "active_clients"]
+    cum_prev = {k: last_value(rows_prev, k) for k in cum_keys}
+    cum_curr = {k: last_value(rows_curr, k) for k in cum_keys}
+    cum_delta = {k: (cum_curr.get(k, 0) - cum_prev.get(k, 0)) for k in cum_keys}
+
+    period_curr = _format_period(last_week_start, last_week_end)
+
+    return {
+        "period": period_curr,
+        "prev": sums_prev | cum_prev,
+        "curr": sums_curr | cum_curr,
+        "cum_delta": cum_delta,
+    }
 
 
-def format_weekly_from_daily(title: str, prev: Dict[str, int], curr: Dict[str, int]) -> str:
-    def line(label: str, key: str) -> str:
-        a = prev.get(key, 0)
-        b = curr.get(key, 0)
-        diff = b - a
-        return f"- {label}: {b} ({diff:+})"
+def format_weekly_from_daily(title: str, data: Dict[str, Dict[str, int] | str]) -> str:
+    period = str(data.get("period", ""))
+    prev = data.get("prev", {})  # type: ignore[assignment]
+    curr = data.get("curr", {})  # type: ignore[assignment]
+    cum_delta = data.get("cum_delta", {})  # type: ignore[assignment]
 
-    parts = [title,
-             line("SMS-нейминги (всего)", "sms_namings_total"),
-             line("Активные клиенты", "active_clients"),
-             "",
-             "SMS-трафик (отправлено):",
-             line("МТС", "mts"),
-             line("Мегафон", "megafon"),
-             line("Билайн", "beeline"),
-             line("Теле2 и Ростелеком", "tele2_rostelecom"),
-             line("Прочие операторы", "other_operators"),
-             "",
-             "Трафик в альт. каналы:",
-             line("Все каналы", "alt_channels_total"),
-             line("Просмотры в TeleAds", "teleads_views"),
-             ]
+    def total_sms(d: Dict[str, int]) -> int:
+        return int(d.get("mts", 0)) + int(d.get("megafon", 0)) + int(d.get("beeline", 0)) + int(d.get("tele2_rostelecom", 0)) + int(d.get("other_operators", 0))
+
+    sms_prev = total_sms(prev)  # type: ignore[arg-type]
+    sms_curr = total_sms(curr)  # type: ignore[arg-type]
+    sms_diff = sms_curr - sms_prev
+
+    alt_prev = int(prev.get("alt_channels_total", 0))  # type: ignore[union-attr]
+    alt_curr = int(curr.get("alt_channels_total", 0))  # type: ignore[union-attr]
+    alt_diff = alt_curr - alt_prev
+
+    ta_prev = int(prev.get("teleads_views", 0))  # type: ignore[union-attr]
+    ta_curr = int(curr.get("teleads_views", 0))  # type: ignore[union-attr]
+    ta_diff = ta_curr - ta_prev
+
+    sms_names_delta = int(cum_delta.get("sms_namings_total", 0))  # type: ignore[union-attr]
+    active_clients_delta = int(cum_delta.get("active_clients", 0))  # type: ignore[union-attr]
+
+    parts = [
+        f"{title}: {period}",
+        "Итоги недели:",
+        f"- Отправлено SMS (всего): {sms_curr} ({sms_diff:+})",
+        f"- Отправлено в альт. каналы (всего): {alt_curr} ({alt_diff:+})",
+        f"- Просмотры в TeleAds (всего): {ta_curr} ({ta_diff:+})",
+        "",
+        "Клиенты и нейминги (прирост):",
+        f"- SMS-нейминги: {sms_names_delta:+}",
+        f"- Активные клиенты: {active_clients_delta:+}",
+    ]
     return "\n".join(parts)

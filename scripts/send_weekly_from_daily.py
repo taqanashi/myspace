@@ -21,8 +21,7 @@ async def run() -> None:
         data = await weekly_from_daily(db, settings.channel_id, settings, now)
         text = format_weekly_from_daily(
             "Еженедельная сводка OmniChannel (прошлая неделя, по ежедневным отчётам)",
-            data.get("prev", {}),
-            data.get("curr", {}),
+            data,
         )
         await bot.send_message(chat_id=settings.channel_id, text=text)
     finally:

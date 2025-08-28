@@ -25,7 +25,7 @@ async def set_commands(bot: Bot) -> None:
 async def send_weekly_daily_report(bot: Bot, db: Database, settings: Settings) -> None:
     now = dt.datetime.now(dt.timezone.utc)
     data = await weekly_from_daily(db, settings.channel_id, settings, now)
-    text = format_weekly_from_daily("Еженедельная сводка OmniChannel (по ежедневным отчётам)", data.get("prev", {}), data.get("curr", {}))
+    text = format_weekly_from_daily("Еженедельная сводка OmniChannel (по ежедневным отчётам)", data)
     await bot.send_message(chat_id=settings.channel_id, text=text)
 
 
