@@ -46,6 +46,18 @@ def _media_kind(message: Message) -> Optional[str]:
     return None
 
 
+def _message_datetime_utc(message: Message) -> dt.datetime:
+    # Prefer original date for forwarded messages
+    orig_dt = None
+    try:
+        if message.forward_origin and getattr(message.forward_origin, "date", None):
+            orig_dt = message.forward_origin.date
+    except Exception:
+        orig_dt = None
+    base_dt = orig_dt or message.date
+    return base_dt if base_dt.tzinfo else base_dt.replace(tzinfo=dt.timezone.utc)
+
+
 def register(router: Router, db: Database, channel_id: int, settings: Settings) -> None:
     @router.channel_post()
     async def on_channel_post(message: Message) -> None:
@@ -68,7 +80,8 @@ def register(router: Router, db: Database, channel_id: int, settings: Settings) 
 
         # Try to parse daily summary and store it
         try:
-            daily = parse_daily_summary(text, message.date.replace(tzinfo=dt.timezone.utc) if message.date.tzinfo is None else message.date, settings)
+            msg_dt_utc = _message_datetime_utc(message)
+            daily = parse_daily_summary(text, msg_dt_utc, settings)
             if daily:
                 await db.upsert_daily_metrics(
                     channel_id=message.chat.id,
