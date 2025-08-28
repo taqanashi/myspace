@@ -15,17 +15,18 @@ from .config import Paths, Settings
 from .db import Database
 from .handlers import register as register_handlers
 from .reporting import format_comparison, monthly_report, weekly_report
+from .daily import weekly_from_daily, format_weekly_from_daily
 
 
 async def set_commands(bot: Bot) -> None:
     await bot.set_my_commands([BotCommand(command="stats", description="Проверка состояния")])
 
 
-async def send_weekly_report(bot: Bot, db: Database, channel_id: int, tz: str) -> None:
+async def send_weekly_daily_report(bot: Bot, db: Database, settings: Settings) -> None:
     now = dt.datetime.now(dt.timezone.utc)
-    data = await weekly_report(db, channel_id, now)
-    text = format_comparison("Еженедельный отчёт", data.get("prev", {}), data.get("curr", {}))
-    await bot.send_message(chat_id=channel_id, text=text)
+    data = await weekly_from_daily(db, settings.channel_id, settings, now)
+    text = format_weekly_from_daily("Еженедельная сводка OmniChannel (по ежедневным отчётам)", data.get("prev", {}), data.get("curr", {}))
+    await bot.send_message(chat_id=settings.channel_id, text=text)
 
 
 async def send_monthly_report(bot: Bot, db: Database, channel_id: int, tz: str) -> None:
@@ -49,18 +50,20 @@ async def main() -> None:
     bot = Bot(token=settings.telegram_bot_token)
     dp = Dispatcher(storage=MemoryStorage())
 
-    register_handlers(dp, db, settings.channel_id)
+    register_handlers(dp, db, settings.channel_id, settings)
     await set_commands(bot)
 
     scheduler = AsyncIOScheduler(timezone=settings.timezone)
+    # Weekly report based on daily metrics (every Monday at configured hour)
     scheduler.add_job(
-        send_weekly_report,
+        send_weekly_daily_report,
         trigger=CronTrigger(day_of_week="mon", hour=settings.weekly_report_hour, minute=0),
-        args=[bot, db, settings.channel_id, settings.timezone],
-        id="weekly_report",
+        args=[bot, db, settings],
+        id="weekly_daily_report",
         replace_existing=True,
         misfire_grace_time=3600,
     )
+    # Monthly report based on channel message stats (optional)
     scheduler.add_job(
         send_monthly_report,
         trigger=CronTrigger(day=1, hour=settings.monthly_report_hour, minute=0),

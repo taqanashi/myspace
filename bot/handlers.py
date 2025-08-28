@@ -7,7 +7,9 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from aiogram.types.message import ContentType
 
+from .config import Settings
 from .db import Database, MessageRecord, to_unix
+from .daily import parse_daily_summary
 
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
@@ -44,7 +46,7 @@ def _media_kind(message: Message) -> Optional[str]:
     return None
 
 
-def register(router: Router, db: Database, channel_id: int) -> None:
+def register(router: Router, db: Database, channel_id: int, settings: Settings) -> None:
     @router.channel_post()
     async def on_channel_post(message: Message) -> None:
         if message.chat.id != channel_id:
@@ -63,6 +65,29 @@ def register(router: Router, db: Database, channel_id: int) -> None:
             is_forwarded=bool(message.forward_origin),
         )
         await db.insert_message(record)
+
+        # Try to parse daily summary and store it
+        try:
+            daily = parse_daily_summary(text, message.date.replace(tzinfo=dt.timezone.utc) if message.date.tzinfo is None else message.date, settings)
+            if daily:
+                await db.upsert_daily_metrics(
+                    channel_id=message.chat.id,
+                    date_str=daily.date_str,
+                    values={
+                        "sms_namings_total": daily.sms_namings_total,
+                        "active_clients": daily.active_clients,
+                        "mts": daily.mts,
+                        "megafon": daily.megafon,
+                        "beeline": daily.beeline,
+                        "tele2_rostelecom": daily.tele2_rostelecom,
+                        "other_operators": daily.other_operators,
+                        "alt_channels_total": daily.alt_channels_total,
+                        "teleads_views": daily.teleads_views,
+                    },
+                )
+        except Exception:
+            # Fail-safe: ignore parse errors
+            pass
 
     @router.edited_channel_post()
     async def on_edited_channel_post(message: Message) -> None:

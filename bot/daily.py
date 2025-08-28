@@ -1,7 +1,7 @@
 import datetime as dt
 import re
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Tuple
 
 from .config import Settings
 
@@ -51,7 +51,6 @@ def parse_daily_summary(text: str, message_dt_utc: dt.datetime, settings: Settin
         m = rx.search(text)
         values[key] = _to_int(m.group(1)) if m else 0
 
-    # Compute local date for "yesterday" relative to message time
     tz = settings.tz()
     local_dt = message_dt_utc.astimezone(tz)
     target_date = (local_dt - dt.timedelta(days=1)).date()
@@ -63,7 +62,6 @@ def parse_daily_summary(text: str, message_dt_utc: dt.datetime, settings: Settin
 def format_daily_comparison(curr: DailyMetrics, prev: Optional[DailyMetrics]) -> str:
     def line(label: str, a: int, b: int) -> str:
         diff = b - a
-        sign = "+" if diff > 0 else "" if diff == 0 else ""
         return f"- {label}: {b} ({diff:+})"
 
     header = f"Ежедневная сводка: сравнение со вчерашним днём ({curr.date_str} vs -1д)"
@@ -86,4 +84,73 @@ def format_daily_comparison(curr: DailyMetrics, prev: Optional[DailyMetrics]) ->
         line("Все каналы", prev.alt_channels_total, curr.alt_channels_total),
         line("Просмотры в TeleAds", prev.teleads_views, curr.teleads_views),
     ]
+    return "\n".join(parts)
+
+
+def _sum_metrics(rows: List[Dict[str, int]]) -> Dict[str, int]:
+    keys = [
+        "sms_namings_total",
+        "active_clients",
+        "mts",
+        "megafon",
+        "beeline",
+        "tele2_rostelecom",
+        "other_operators",
+        "alt_channels_total",
+        "teleads_views",
+    ]
+    result = {k: 0 for k in keys}
+    for row in rows:
+        for k in keys:
+            result[k] += int(row.get(k, 0))
+    return result
+
+
+def week_starts(local_now: dt.datetime) -> Tuple[dt.date, dt.date]:
+    # Monday as start; return (this_week_start, last_week_start)
+    this_week_start = (local_now - dt.timedelta(days=local_now.weekday())).date()
+    last_week_start = this_week_start - dt.timedelta(days=7)
+    return this_week_start, last_week_start
+
+
+async def weekly_from_daily(db: "Database", channel_id: int, settings: Settings, now_utc: dt.datetime) -> Dict[str, Dict[str, int]]:
+    from .db import Database  # type: ignore # for type hints only
+
+    tz = settings.tz()
+    local_now = now_utc.astimezone(tz)
+    this_week_start, last_week_start = week_starts(local_now)
+
+    # We want last complete week (Mon..Sun) vs previous week
+    last_week_end = this_week_start - dt.timedelta(days=1)
+    prev_week_start = last_week_start - dt.timedelta(days=7)
+    prev_week_end = last_week_start - dt.timedelta(days=1)
+
+    rows_prev = await db.fetch_daily_metrics_between(channel_id, prev_week_start.isoformat(), prev_week_end.isoformat())
+    rows_curr = await db.fetch_daily_metrics_between(channel_id, last_week_start.isoformat(), last_week_end.isoformat())
+
+    return {"prev": _sum_metrics(rows_prev), "curr": _sum_metrics(rows_curr)}
+
+
+def format_weekly_from_daily(title: str, prev: Dict[str, int], curr: Dict[str, int]) -> str:
+    def line(label: str, key: str) -> str:
+        a = prev.get(key, 0)
+        b = curr.get(key, 0)
+        diff = b - a
+        return f"- {label}: {b} ({diff:+})"
+
+    parts = [title,
+             line("SMS-нейминги (всего)", "sms_namings_total"),
+             line("Активные клиенты", "active_clients"),
+             "",
+             "SMS-трафик (отправлено):",
+             line("МТС", "mts"),
+             line("Мегафон", "megafon"),
+             line("Билайн", "beeline"),
+             line("Теле2 и Ростелеком", "tele2_rostelecom"),
+             line("Прочие операторы", "other_operators"),
+             "",
+             "Трафик в альт. каналы:",
+             line("Все каналы", "alt_channels_total"),
+             line("Просмотры в TeleAds", "teleads_views"),
+             ]
     return "\n".join(parts)
