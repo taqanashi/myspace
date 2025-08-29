@@ -10,8 +10,8 @@ from aiogram.types import FSInputFile
 
 from .config import Settings
 from .db import Database, MessageRecord, to_unix
-from .daily import parse_daily_summary, DailyMetrics, format_daily_comparison, weekly_from_daily, format_weekly_from_daily
-from .charts import render_daily_comparison_png, render_weekly_sums_png
+from .daily import parse_daily_summary, DailyMetrics, format_daily_comparison, weekly_from_daily, format_weekly_from_daily, period_from_daily, format_period_from_daily
+from .charts import render_daily_comparison_png, render_weekly_sums_png, render_period_totals_png
 from pathlib import Path
 
 
@@ -280,6 +280,46 @@ def register(router: Router, db: Database, channel_id: int, settings: Settings) 
             period_label_curr=str(data.get("period", "текущая неделя")),
             prev=data.get("prev", {}),  # type: ignore[arg-type]
             curr=data.get("curr", {}),  # type: ignore[arg-type]
+        )
+        await message.answer_photo(FSInputFile(str(img_path)))
+
+    # DM: /month -> current month-to-date stats
+    @router.message(Command("month"))
+    async def on_month(message: Message) -> None:
+        if not _is_allowed(message, settings):
+            return
+        tz = settings.tz()
+        now_local = dt.datetime.now(dt.timezone.utc).astimezone(tz)
+        start = now_local.replace(day=1).date()
+        end = now_local.date()
+        data = await period_from_daily(db, channel_id, start, end)
+        text = format_period_from_daily("Ежемесячная сводка (MTD)", f"{start.strftime('%d.%m.%Y')} - {end.strftime('%d.%m.%Y')}", data)
+        await message.answer(text)
+        img_path = render_period_totals_png(
+            output_dir=Path("data/charts"),
+            title="MTD итоги",
+            label=f"{start.strftime('%d.%m.%Y')} - {end.strftime('%d.%m.%Y')}",
+            totals=data.get("totals", {}),  # type: ignore[arg-type]
+        )
+        await message.answer_photo(FSInputFile(str(img_path)))
+
+    # DM: /year -> current year-to-date stats
+    @router.message(Command("year"))
+    async def on_year(message: Message) -> None:
+        if not _is_allowed(message, settings):
+            return
+        tz = settings.tz()
+        now_local = dt.datetime.now(dt.timezone.utc).astimezone(tz)
+        start = dt.date(year=now_local.year, month=1, day=1)
+        end = now_local.date()
+        data = await period_from_daily(db, channel_id, start, end)
+        text = format_period_from_daily("Годовая сводка (YTD)", f"{start.strftime('%d.%m.%Y')} - {end.strftime('%d.%m.%Y')}", data)
+        await message.answer(text)
+        img_path = render_period_totals_png(
+            output_dir=Path("data/charts"),
+            title="YTD итоги",
+            label=f"{start.strftime('%d.%m.%Y')} - {end.strftime('%d.%m.%Y')}",
+            totals=data.get("totals", {}),  # type: ignore[arg-type]
         )
         await message.answer_photo(FSInputFile(str(img_path)))
 

@@ -72,3 +72,31 @@ def render_weekly_sums_png(output_dir: Path, title: str, period_label_prev: str,
     plt.savefig(filepath)
     plt.close()
     return filepath
+
+
+def render_period_totals_png(output_dir: Path, title: str, label: str, totals: Dict[str, int]) -> Path:
+    metrics = [
+        ("SMS (итого)", ["mts", "megafon", "beeline", "tele2_rostelecom", "other_operators"]),
+        ("Альт. каналы", ["alt_channels_total"]),
+        ("TeleAds", ["teleads_views"]),
+    ]
+    labels = [m[0] for m in metrics]
+
+    def total(d: Dict[str, int], keys: List[str]) -> int:
+        return sum(int(d.get(k, 0)) for k in keys)
+
+    vals = [total(totals, m[1]) for m in metrics]
+
+    _ensure_dir(output_dir)
+    filepath = output_dir / f"period_{dt.datetime.utcnow().strftime('%Y%m%d%H%M%S')}.png"
+
+    x = range(len(labels))
+    plt.figure(figsize=(8, 4))
+    plt.bar(list(x), vals, width=0.5, label=label)
+    plt.xticks(list(x), labels)
+    plt.title(title)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(filepath)
+    plt.close()
+    return filepath

@@ -189,3 +189,68 @@ def format_weekly_from_daily(title: str, data: Dict[str, Dict[str, int] | str]) 
         f"- Активные клиенты: {active_clients_delta:+}",
     ]
     return "\n".join(parts)
+
+
+# Period (MTD/YTD) aggregation
+async def period_from_daily(db: "Database", channel_id: int, start_date: dt.date, end_date: dt.date) -> Dict[str, Dict[str, int] | str]:
+    traffic_keys = [
+        "mts",
+        "megafon",
+        "beeline",
+        "tele2_rostelecom",
+        "other_operators",
+        "alt_channels_total",
+        "teleads_views",
+    ]
+    rows = await db.fetch_daily_metrics_between(channel_id, start_date.isoformat(), end_date.isoformat())
+
+    sums = _sum_metrics(rows, traffic_keys)
+
+    def last_value(rows_list: List[Dict[str, int]], key: str) -> int:
+        return int(rows_list[-1][key]) if rows_list else 0
+
+    # cumulative metrics state at end
+    cum_end = {
+        "sms_namings_total": last_value(rows, "sms_namings_total"),
+        "active_clients": last_value(rows, "active_clients"),
+    }
+    # cumulative at begin-1
+    prev_rows = await db.fetch_daily_metrics_between(channel_id, "0001-01-01", (start_date - dt.timedelta(days=1)).isoformat())
+    cum_begin = {
+        "sms_namings_total": last_value(prev_rows, "sms_namings_total"),
+        "active_clients": last_value(prev_rows, "active_clients"),
+    }
+    cum_delta = {
+        "sms_namings_total": cum_end["sms_namings_total"] - cum_begin["sms_namings_total"],
+        "active_clients": cum_end["active_clients"] - cum_begin["active_clients"],
+    }
+
+    return {
+        "period": _format_period(start_date, end_date),
+        "totals": sums,
+        "cum_end": cum_end,
+        "cum_delta": cum_delta,
+    }
+
+
+def format_period_from_daily(title: str, label: str, data: Dict[str, Dict[str, int] | str]) -> str:
+    totals = data.get("totals", {})  # type: ignore[assignment]
+    cum_end = data.get("cum_end", {})  # type: ignore[assignment]
+    cum_delta = data.get("cum_delta", {})  # type: ignore[assignment]
+
+    sms_total = int(totals.get("mts", 0)) + int(totals.get("megafon", 0)) + int(totals.get("beeline", 0)) + int(totals.get("tele2_rostelecom", 0)) + int(totals.get("other_operators", 0))
+    alt_total = int(totals.get("alt_channels_total", 0))
+    teleads_total = int(totals.get("teleads_views", 0))
+
+    parts = [
+        f"{title}: {label}",
+        "Итоги периода:",
+        f"- SMS (всего): {sms_total}",
+        f"- Альт. каналы (всего): {alt_total}",
+        f"- TeleAds (всего): {teleads_total}",
+        "",
+        "Кумулятивы:",
+        f"- SMS-нейминги (конец периода): {int(cum_end.get('sms_namings_total', 0))} (прирост: {int(cum_delta.get('sms_namings_total', 0)):+})",
+        f"- Активные клиенты (конец периода): {int(cum_end.get('active_clients', 0))} (прирост: {int(cum_delta.get('active_clients', 0)):+})",
+    ]
+    return "\n".join(parts)
