@@ -277,6 +277,10 @@ def register(router: Router, db: Database, channel_id: int, settings: Settings) 
         yesterday = today_local - dt.timedelta(days=1)
         day_before = today_local - dt.timedelta(days=2)
         rows = await db.fetch_daily_metrics_between(channel_id, day_before.isoformat(), yesterday.isoformat())
+        if len(rows) < 2:
+            rows_all = await db.fetch_daily_metrics_between(channel_id, "0001-01-01", "9999-12-31")
+            if len(rows_all) >= 2:
+                rows = rows_all[-2:]
         if len(rows) >= 2:
             prev_row, curr_row = rows[0], rows[1]
             prev = DailyMetrics(
