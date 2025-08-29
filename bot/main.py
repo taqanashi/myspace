@@ -20,7 +20,12 @@ from .charts import render_weekly_sums_png
 
 
 async def set_commands(bot: Bot) -> None:
-    await bot.set_my_commands([BotCommand(command="stats", description="Проверка состояния")])
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Начать"),
+        BotCommand(command="daily", description="Сравнение: вчера vs позавчера"),
+        BotCommand(command="weekly", description="Еженедельный отчёт"),
+        BotCommand(command="stats", description="Проверка состояния"),
+    ])
 
 
 async def send_weekly_daily_report(bot: Bot, db: Database, settings: Settings) -> None:
