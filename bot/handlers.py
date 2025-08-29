@@ -267,8 +267,8 @@ def register(router: Router, db: Database, channel_id: int, settings: Settings) 
         else:
             await message.answer("Недостаточно данных для сравнения: нет ежедневных сводок за последние два дня.")
 
-    # DM: /lastday (alias /last) -> yesterday totals and deltas
-    @router.message(Command(("lastday", "last")))
+    # DM: /lastday -> yesterday totals and deltas
+    @router.message(Command("lastday"))
     async def on_lastday(message: Message) -> None:
         if not _is_allowed(message, settings):
             return
@@ -336,6 +336,11 @@ def register(router: Router, db: Database, channel_id: int, settings: Settings) 
             await message.answer_photo(FSInputFile(str(img_path)))
         else:
             await message.answer("Недостаточно данных для сравнения: нет ежедневных сводок за последние два дня.")
+
+    # DM: /last -> alias for lastday
+    @router.message(Command("last"))
+    async def on_last(message: Message) -> None:
+        return await on_lastday(message)
 
     # DM: /weekly -> send last complete week vs previous to current chat
     @router.message(Command("weekly"))
