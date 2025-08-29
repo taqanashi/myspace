@@ -6,7 +6,7 @@ from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, FSInputFile
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
@@ -16,6 +16,7 @@ from .db import Database
 from .handlers import register as register_handlers
 from .reporting import format_comparison, monthly_report, weekly_report
 from .daily import weekly_from_daily, format_weekly_from_daily
+from .charts import render_weekly_sums_png
 
 
 async def set_commands(bot: Bot) -> None:
@@ -27,6 +28,16 @@ async def send_weekly_daily_report(bot: Bot, db: Database, settings: Settings) -
     data = await weekly_from_daily(db, settings.channel_id, settings, now)
     text = format_weekly_from_daily("Еженедельная сводка OmniChannel (по ежедневным отчётам)", data)
     await bot.send_message(chat_id=settings.channel_id, text=text)
+    # Attach chart
+    img_path = render_weekly_sums_png(
+        output_dir=Path("data/charts"),
+        title="Итоги недели",
+        period_label_prev="пред. неделя",
+        period_label_curr=str(data.get("period", "текущая неделя")),
+        prev=data.get("prev", {}),  # type: ignore[arg-type]
+        curr=data.get("curr", {}),  # type: ignore[arg-type]
+    )
+    await bot.send_photo(chat_id=settings.channel_id, photo=FSInputFile(str(img_path)))
 
 
 async def send_monthly_report(bot: Bot, db: Database, channel_id: int, tz: str) -> None:

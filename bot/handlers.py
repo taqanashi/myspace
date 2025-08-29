@@ -6,10 +6,13 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 from aiogram.types.message import ContentType
+from aiogram.types import FSInputFile
 
 from .config import Settings
 from .db import Database, MessageRecord, to_unix
-from .daily import parse_daily_summary
+from .daily import parse_daily_summary, DailyMetrics, format_daily_comparison
+from .charts import render_daily_comparison_png
+from pathlib import Path
 
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
@@ -58,6 +61,62 @@ def _message_datetime_utc(message: Message) -> dt.datetime:
     return base_dt if base_dt.tzinfo else base_dt.replace(tzinfo=dt.timezone.utc)
 
 
+async def _maybe_send_daily_comparison_with_chart(db: Database, channel_id: int, date_str: str, message: Message) -> None:
+    # Fetch current date and previous date metrics
+    date = dt.date.fromisoformat(date_str)
+    prev_date = date - dt.timedelta(days=1)
+    rows = await db.fetch_daily_metrics_between(channel_id, prev_date.isoformat(), date.isoformat())
+    if len(rows) < 2:
+        return
+    prev_row, curr_row = rows[0], rows[1]
+
+    def to_dm(row: dict) -> DailyMetrics:
+        return DailyMetrics(
+            date_str=row["date"],
+            sms_namings_total=int(row.get("sms_namings_total", 0)),
+            active_clients=int(row.get("active_clients", 0)),
+            mts=int(row.get("mts", 0)),
+            megafon=int(row.get("megafon", 0)),
+            beeline=int(row.get("beeline", 0)),
+            tele2_rostelecom=int(row.get("tele2_rostelecom", 0)),
+            other_operators=int(row.get("other_operators", 0)),
+            alt_channels_total=int(row.get("alt_channels_total", 0)),
+            teleads_views=int(row.get("teleads_views", 0)),
+        )
+
+    prev = to_dm(prev_row)
+    curr = to_dm(curr_row)
+
+    text = format_daily_comparison(curr=curr, prev=prev)
+    img_path = render_daily_comparison_png(
+        output_dir=Path("data/charts"),
+        title="Вчера vs позавчера",
+        prev_label=prev.date_str,
+        curr_label=curr.date_str,
+        prev={
+            "mts": prev.mts,
+            "megafon": prev.megafon,
+            "beeline": prev.beeline,
+            "tele2_rostelecom": prev.tele2_rostelecom,
+            "other_operators": prev.other_operators,
+            "alt_channels_total": prev.alt_channels_total,
+            "teleads_views": prev.teleads_views,
+        },
+        curr={
+            "mts": curr.mts,
+            "megafon": curr.megafon,
+            "beeline": curr.beeline,
+            "tele2_rostelecom": curr.tele2_rostelecom,
+            "other_operators": curr.other_operators,
+            "alt_channels_total": curr.alt_channels_total,
+            "teleads_views": curr.teleads_views,
+        },
+    )
+
+    await message.bot.send_message(chat_id=channel_id, text=text)
+    await message.bot.send_photo(chat_id=channel_id, photo=FSInputFile(str(img_path)))
+
+
 def register(router: Router, db: Database, channel_id: int, settings: Settings) -> None:
     @router.channel_post()
     async def on_channel_post(message: Message) -> None:
@@ -98,6 +157,8 @@ def register(router: Router, db: Database, channel_id: int, settings: Settings) 
                         "teleads_views": daily.teleads_views,
                     },
                 )
+                # After upsert, send comparison (yesterday vs day-before) with chart
+                await _maybe_send_daily_comparison_with_chart(db, message.chat.id, daily.date_str, message)
         except Exception:
             # Fail-safe: ignore parse errors
             pass
