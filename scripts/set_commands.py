@@ -13,6 +13,7 @@ async def run() -> None:
         await bot.set_my_commands([
             BotCommand(command="start", description="Начать"),
             BotCommand(command="daily", description="Сравнение: вчера vs позавчера"),
+            BotCommand(command="lastday", description="За вчера и прирост"),
             BotCommand(command="weekly", description="Еженедельный отчёт"),
             BotCommand(command="month", description="Ежемесячная сводка (MTD)"),
             BotCommand(command="year", description="Годовая сводка (YTD)"),
