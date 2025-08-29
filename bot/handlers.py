@@ -69,7 +69,14 @@ def _is_allowed(message: Message, settings: Settings) -> bool:
     return chat.id in set(settings.allowed_chat_ids)
 
 
-async def _maybe_send_daily_comparison_with_chart(db: Database, channel_id: int, date_str: str, message: Message) -> None:
+async def _send_dm_to_allowed(message: Message, settings: Settings, text: str, img_path: Path | None = None) -> None:
+    for uid in settings.allowed_user_ids:
+        await message.bot.send_message(chat_id=uid, text=text)
+        if img_path is not None:
+            await message.bot.send_photo(chat_id=uid, photo=FSInputFile(str(img_path)))
+
+
+async def _maybe_send_daily_comparison_with_chart(db: Database, channel_id: int, date_str: str, message: Message, settings: Settings) -> None:
     # Fetch current date and previous date metrics
     date = dt.date.fromisoformat(date_str)
     prev_date = date - dt.timedelta(days=1)
@@ -121,8 +128,8 @@ async def _maybe_send_daily_comparison_with_chart(db: Database, channel_id: int,
         },
     )
 
-    await message.bot.send_message(chat_id=channel_id, text=text)
-    await message.bot.send_photo(chat_id=channel_id, photo=FSInputFile(str(img_path)))
+    # Send only via DM to allowed users
+    await _send_dm_to_allowed(message, settings, text, img_path)
 
 
 def register(router: Router, db: Database, channel_id: int, settings: Settings) -> None:
@@ -165,8 +172,8 @@ def register(router: Router, db: Database, channel_id: int, settings: Settings) 
                         "teleads_views": daily.teleads_views,
                     },
                 )
-                # After upsert, send comparison (yesterday vs day-before) with chart
-                await _maybe_send_daily_comparison_with_chart(db, message.chat.id, daily.date_str, message)
+                # After upsert, send comparison (yesterday vs day-before) with chart only in DMs
+                await _maybe_send_daily_comparison_with_chart(db, message.chat.id, daily.date_str, message, settings)
         except Exception:
             # Fail-safe: ignore parse errors
             pass
