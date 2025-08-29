@@ -3,6 +3,7 @@ import datetime as dt
 from typing import Optional
 
 from aiogram import Bot
+from aiogram.types import FSInputFile
 from dotenv import load_dotenv
 
 from bot.config import Settings
@@ -79,7 +80,7 @@ async def run() -> None:
                 },
             )
             await bot.send_message(chat_id=settings.channel_id, text=text)
-            await bot.send_photo(chat_id=settings.channel_id, photo=img_path.open("rb"))
+            await bot.send_photo(chat_id=settings.channel_id, photo=FSInputFile(str(img_path)))
         else:
             await bot.send_message(chat_id=settings.channel_id, text="Недостаточно данных для сравнения: нет ежедневных сводок за последние два дня.")
     finally:
