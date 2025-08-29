@@ -401,3 +401,80 @@ def register(router: Router, db: Database, channel_id: int, settings: Settings) 
         if not _is_allowed(message, settings):
             return
         await message.answer("Бот активен и собирает статистику по каналу.")
+
+    # Fallback catcher for /lastday and /last with @mention
+    @router.message()
+    async def on_any_text(message: Message) -> None:
+        if not _is_allowed(message, settings):
+            return
+        if not message.text:
+            return
+        text_cmd = message.text.strip().split()[0].lower()
+        base_cmd = text_cmd.split("@")[0]
+        if base_cmd not in {"/lastday", "/last"}:
+            return
+        # Reuse logic from /lastday
+        tz = settings.tz()
+        today_local = dt.datetime.now(dt.timezone.utc).astimezone(tz).date()
+        yesterday = today_local - dt.timedelta(days=1)
+        day_before = today_local - dt.timedelta(days=2)
+        rows = await db.fetch_daily_metrics_between(channel_id, day_before.isoformat(), yesterday.isoformat())
+        if len(rows) < 2:
+            rows_all = await db.fetch_daily_metrics_between(channel_id, "0001-01-01", "9999-12-31")
+            if len(rows_all) >= 2:
+                rows = rows_all[-2:]
+        if len(rows) >= 2:
+            prev_row, curr_row = rows[0], rows[1]
+            prev = DailyMetrics(
+                date_str=prev_row["date"],
+                sms_namings_total=int(prev_row.get("sms_namings_total", 0)),
+                active_clients=int(prev_row.get("active_clients", 0)),
+                mts=int(prev_row.get("mts", 0)),
+                megafon=int(prev_row.get("megafon", 0)),
+                beeline=int(prev_row.get("beeline", 0)),
+                tele2_rostelecom=int(prev_row.get("tele2_rostelecom", 0)),
+                other_operators=int(prev_row.get("other_operators", 0)),
+                alt_channels_total=int(prev_row.get("alt_channels_total", 0)),
+                teleads_views=int(prev_row.get("teleads_views", 0)),
+            )
+            curr = DailyMetrics(
+                date_str=curr_row["date"],
+                sms_namings_total=int(curr_row.get("sms_namings_total", 0)),
+                active_clients=int(curr_row.get("active_clients", 0)),
+                mts=int(curr_row.get("mts", 0)),
+                megafon=int(curr_row.get("megafon", 0)),
+                beeline=int(curr_row.get("beeline", 0)),
+                tele2_rostelecom=int(curr_row.get("tele2_rostelecom", 0)),
+                other_operators=int(curr_row.get("other_operators", 0)),
+                alt_channels_total=int(curr_row.get("alt_channels_total", 0)),
+                teleads_views=int(curr_row.get("teleads_views", 0)),
+            )
+            text = format_daily_comparison(curr=curr, prev=prev)
+            img_path = render_daily_comparison_png(
+                output_dir=Path("data/charts"),
+                title="За вчера и прирост",
+                prev_label=prev.date_str,
+                curr_label=curr.date_str,
+                prev={
+                    "mts": prev.mts,
+                    "megafon": prev.megafon,
+                    "beeline": prev.beeline,
+                    "tele2_rostelecom": prev.tele2_rostelecom,
+                    "other_operators": prev.other_operators,
+                    "alt_channels_total": prev.alt_channels_total,
+                    "teleads_views": prev.teleads_views,
+                },
+                curr={
+                    "mts": curr.mts,
+                    "megafon": curr.megafon,
+                    "beeline": curr.beeline,
+                    "tele2_rostelecom": curr.tele2_rostelecom,
+                    "other_operators": curr.other_operators,
+                    "alt_channels_total": curr.alt_channels_total,
+                    "teleads_views": curr.teleads_views,
+                },
+            )
+            await message.answer(text)
+            await message.answer_photo(FSInputFile(str(img_path)))
+        else:
+            await message.answer("Недостаточно данных для сравнения: нет ежедневных сводок за последние два дня.")
