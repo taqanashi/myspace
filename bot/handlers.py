@@ -61,6 +61,14 @@ def _message_datetime_utc(message: Message) -> dt.datetime:
     return base_dt if base_dt.tzinfo else base_dt.replace(tzinfo=dt.timezone.utc)
 
 
+def _is_allowed(message: Message, settings: Settings) -> bool:
+    chat = message.chat
+    if chat.type == "private":
+        user = message.from_user
+        return bool(user and user.id in set(settings.allowed_user_ids))
+    return chat.id in set(settings.allowed_chat_ids)
+
+
 async def _maybe_send_daily_comparison_with_chart(db: Database, channel_id: int, date_str: str, message: Message) -> None:
     # Fetch current date and previous date metrics
     date = dt.date.fromisoformat(date_str)
@@ -170,6 +178,8 @@ def register(router: Router, db: Database, channel_id: int, settings: Settings) 
     # DM: /start -> greet and show commands
     @router.message(CommandStart())
     async def on_start(message: Message) -> None:
+        if not _is_allowed(message, settings):
+            return
         await message.answer(
             "Привет! Я буду присылать сравнения. Команды:\n"
             "/daily — вчера vs позавчера (с графиком)\n"
@@ -180,6 +190,8 @@ def register(router: Router, db: Database, channel_id: int, settings: Settings) 
     # DM: /daily -> send yesterday vs day-before to current chat
     @router.message(Command("daily"))
     async def on_daily(message: Message) -> None:
+        if not _is_allowed(message, settings):
+            return
         tz = settings.tz()
         today_local = dt.datetime.now(dt.timezone.utc).astimezone(tz).date()
         yesterday = today_local - dt.timedelta(days=1)
@@ -248,6 +260,8 @@ def register(router: Router, db: Database, channel_id: int, settings: Settings) 
     # DM: /weekly -> send last complete week vs previous to current chat
     @router.message(Command("weekly"))
     async def on_weekly(message: Message) -> None:
+        if not _is_allowed(message, settings):
+            return
         now = dt.datetime.now(dt.timezone.utc)
         data = await weekly_from_daily(db, channel_id, settings, now)
         text = format_weekly_from_daily("Еженедельная сводка OmniChannel (по ежедневным отчётам)", data)
@@ -264,4 +278,6 @@ def register(router: Router, db: Database, channel_id: int, settings: Settings) 
 
     @router.message(Command("stats"))
     async def on_stats(message: Message) -> None:
+        if not _is_allowed(message, settings):
+            return
         await message.answer("Бот активен и собирает статистику по каналу.")

@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from typing import List
 
 from pydantic import BaseModel, ValidationError
 
@@ -13,6 +14,21 @@ class Settings(BaseModel):
     timezone: str = "UTC"
     weekly_report_hour: int = 9
     monthly_report_hour: int = 9
+    allowed_user_ids: List[int] = []
+    allowed_chat_ids: List[int] = []
+
+    @classmethod
+    def _parse_int_list(cls, value: str | None) -> List[int]:
+        if not value:
+            return []
+        items = [v.strip() for v in value.split(",") if v.strip()]
+        result: List[int] = []
+        for it in items:
+            try:
+                result.append(int(it))
+            except ValueError:
+                continue
+        return result
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -24,6 +40,8 @@ class Settings(BaseModel):
                 timezone=os.environ.get("TIMEZONE", "UTC"),
                 weekly_report_hour=int(os.environ.get("WEEKLY_REPORT_HOUR", 9)),
                 monthly_report_hour=int(os.environ.get("MONTHLY_REPORT_HOUR", 9)),
+                allowed_user_ids=cls._parse_int_list(os.environ.get("ALLOWED_USER_IDS")),
+                allowed_chat_ids=cls._parse_int_list(os.environ.get("ALLOWED_CHAT_IDS")),
             )
         except KeyError as exc:
             raise RuntimeError(f"Missing required environment variable: {exc}") from exc
