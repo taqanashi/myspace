@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 from bot.config import Settings
 from bot.db import Database
 from bot.daily import DailyMetrics, format_daily_comparison
+from bot.charts import render_daily_comparison_png
+from pathlib import Path
 
 
 def _row_to_metrics(row: dict) -> DailyMetrics:
@@ -37,12 +39,10 @@ async def run() -> None:
     day_before = today_local - dt.timedelta(days=2)
 
     rows = await db.fetch_daily_metrics_between(settings.channel_id, day_before.isoformat(), yesterday.isoformat())
-    # Build lookup by date
     by_date = {r["date"]: r for r in rows}
     prev_row = by_date.get(day_before.isoformat())
     curr_row = by_date.get(yesterday.isoformat())
 
-    # If one is missing, try to fallback to last two available rows overall
     if not prev_row or not curr_row:
         rows_all = await db.fetch_daily_metrics_between(settings.channel_id, "0001-01-01", "9999-12-31")
         if len(rows_all) >= 2:
@@ -54,9 +54,34 @@ async def run() -> None:
             prev = _row_to_metrics(prev_row)
             curr = _row_to_metrics(curr_row)
             text = format_daily_comparison(curr=curr, prev=prev)
+            img_path = render_daily_comparison_png(
+                output_dir=Path("data/charts"),
+                title="Вчера vs позавчера",
+                prev_label=prev.date_str,
+                curr_label=curr.date_str,
+                prev={
+                    "mts": prev.mts,
+                    "megafon": prev.megafon,
+                    "beeline": prev.beeline,
+                    "tele2_rostelecom": prev.tele2_rostelecom,
+                    "other_operators": prev.other_operators,
+                    "alt_channels_total": prev.alt_channels_total,
+                    "teleads_views": prev.teleads_views,
+                },
+                curr={
+                    "mts": curr.mts,
+                    "megafon": curr.megafon,
+                    "beeline": curr.beeline,
+                    "tele2_rostelecom": curr.tele2_rostelecom,
+                    "other_operators": curr.other_operators,
+                    "alt_channels_total": curr.alt_channels_total,
+                    "teleads_views": curr.teleads_views,
+                },
+            )
+            await bot.send_message(chat_id=settings.channel_id, text=text)
+            await bot.send_photo(chat_id=settings.channel_id, photo=img_path.open("rb"))
         else:
-            text = "Недостаточно данных для сравнения: нет ежедневных сводок за последние два дня."
-        await bot.send_message(chat_id=settings.channel_id, text=text)
+            await bot.send_message(chat_id=settings.channel_id, text="Недостаточно данных для сравнения: нет ежедневных сводок за последние два дня.")
     finally:
         await bot.session.close()
 
