@@ -191,6 +191,8 @@ def register(router: Router, db: Database, channel_id: int, settings: Settings) 
             "Привет! Я буду присылать сравнения. Команды:\n"
             "/daily — вчера vs позавчера (с графиком)\n"
             "/weekly — прошлая неделя vs предыдущая (с графиком)\n"
+            "/month — сводка за месяц (MTD) с графиком\n"
+            "/year — сводка за год (YTD) с графиком\n"
             "/stats — статус бота"
         )
 
